@@ -1,0 +1,6 @@
+# 社内データは絶対にリポジトリへ入れない
+*.xlsx
+*.xls
+*.csv
+master_data.json
+.DS_Store

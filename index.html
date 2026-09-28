@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#1B1E26">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="売場スキャン">
+  <title>売場スキャン</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- ヘッダー -->
+  <header class="header">
+    <div class="brand">TOYLOPARK</div>
+    <div class="title">売場スキャン</div>
+    <div class="pill small" id="deviceIdLabel">端末ID: --</div>
+  </header>
+
+  <!-- カメラエリア -->
+  <main class="camera" id="camera">
+    <div class="camera-inner" id="cameraInner">
+      <video id="video" playsinline muted autoplay></video>
+      <canvas id="overlay"></canvas>
+    </div>
+    <div class="reticle" id="reticle"></div>
+
+    <div class="top-buttons">
+      <div class="left">
+        <button class="pill" id="btnMode">個別</button>
+        <button class="pill" id="btnZoom">1x</button>
+      </div>
+      <button class="pill" id="btnTorch">⚡ ライト</button>
+    </div>
+
+    <!-- 開始／マスター未読込／カメラエラー の案内 -->
+    <div class="cover" id="cover">
+      <div class="cover-text" id="coverText"></div>
+      <button class="btn primary" id="btnCover"></button>
+      <button class="btn secondary" id="btnCoverSub" hidden></button>
+    </div>
+  </main>
+
+  <!-- 情報表示エリア -->
+  <section class="info">
+    <div class="count-row">
+      <span class="count-num" id="countNum">0</span>
+      <span class="count-label">件スキャン済み</span>
+    </div>
+
+    <!-- スキャン結果：マスター照合（◯／該当なし）・商品名・在売価 -->
+    <div class="result" id="resultPanel">
+      <div class="result-mark" id="resultMark">◯</div>
+      <div class="result-body">
+        <div class="result-name" id="resultName"></div>
+        <div class="result-price-row" id="resultPriceRow">
+          <span class="result-price" id="resultPrice"></span><span class="tax">（税込）</span>
+        </div>
+      </div>
+    </div>
+    <div class="warn" id="warnText"></div>
+
+    <button class="master-status" id="btnMaster">マスター未読込</button>
+  </section>
+
+  <!-- フッター -->
+  <footer class="footer">
+    <button class="btn primary" id="btnExport">💾 Excel出力して保存</button>
+    <button class="btn secondary" id="btnReset">🔄 リセット（新規開始）</button>
+  </footer>
+
+  <input type="file" id="masterFile" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+
+  <!-- ダイアログ -->
+  <div class="dialog-backdrop" id="dialog" hidden>
+    <div class="dialog">
+      <div class="dialog-message" id="dialogMessage"></div>
+      <div class="dialog-buttons" id="dialogButtons"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="vendor/xlsx.core.min.js"></script>
+  <script src="vendor/barcode-detector-ponyfill.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
