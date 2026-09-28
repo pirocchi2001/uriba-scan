@@ -9,6 +9,7 @@ const PROCESS_COOLDOWN_MS = 2000;
 const CENTER_ZONE_RATIO = 0.30;
 const SCAN_INTERVAL_MS = 80;
 const TOAST_MS = 2200;
+const NOT_FOUND_SHOW_MS = 2500; // 「該当なし」はOK不要、この時間で自動的に消える
 
 // マスター（master.enc）はパスワードから作ったカギで AES-GCM 暗号化してある。
 // ログイン＝復号できるかどうか。パスワードそのものはどこにも置かない。
@@ -424,18 +425,21 @@ function updateCount() {
 }
 
 let toastTimer = null;
+let notFoundTimer = null;
 let holdingResult = false;
 let holdingJan = null;
 
 /**
- * マスターにあれば「◯」と商品名・在売価（税込）、なければ「該当なし」を表示する。
- * 転記できるよう、OK を押すまで表示し続け、その間は次のスキャンを止める。
+ * マスターにあれば「◯」と商品名・在売価（税込）を、転記できるよう OK を押すまで表示し続ける
+ * （その間は次のスキャンを止める）。なければ「該当なし」を少しの間だけ表示する（OK不要）。
  */
 function showResult(jan, item) {
-  holdingResult = true;
-  holdingJan = jan;
+  clearTimeout(notFoundTimer);
+  holdingResult = !!item;
+  holdingJan = item ? jan : null;
   $('warnText').classList.remove('show');
-  $('reticle').classList.add('holding');
+  $('reticle').classList.toggle('holding', !!item);
+  $('btnOk').hidden = !item;
   const mark = $('resultMark');
   if (item) {
     mark.textContent = '◯';
@@ -452,6 +456,7 @@ function showResult(jan, item) {
     mark.classList.add('none');
     $('resultName').textContent = jan;
     $('resultPriceRow').hidden = true;
+    notFoundTimer = setTimeout(() => $('resultPanel').classList.remove('show'), NOT_FOUND_SHOW_MS);
   }
   $('resultPanel').classList.add('show');
 }
