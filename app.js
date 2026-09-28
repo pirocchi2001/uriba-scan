@@ -8,7 +8,14 @@ const FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e'];
 const PROCESS_COOLDOWN_MS = 2000;
 const CENTER_ZONE_RATIO = 0.30;
 const SCAN_INTERVAL_MS = 80;
-const RESULT_SHOW_MS = 2500;
+const TOAST_MS = 2200;
+
+// マスター（master.enc）はパスワードから作ったカギで AES-GCM 暗号化してある。
+// ログイン＝復号できるかどうか。パスワードそのものはどこにも置かない。
+// ※ tools/encrypt-master.js と同じ値にすること
+const MASTER_URL = 'master.enc';
+const KDF_SALT = 'uriba-scan-master-v1';
+const KDF_ITERATIONS = 600000;
 
 // 認識枠の色
 const COLOR_BLUE = '#3BA7FF';
@@ -19,6 +26,8 @@ const COLOR_ORANGE = '#FFB020';
 const KEY_SESSION = 'uriba_session';
 const KEY_DEVICE_ID = 'uriba_device_id';
 const KEY_MASTER = 'uriba_master';
+const KEY_AUTH = 'uriba_key'; // 復号用のカギ（この端末の中だけに保存）
+const KEY_MASTER_VER = 'uriba_master_ver'; // 最後に取り込んだ master.enc の版
 
 const $ = (id) => document.getElementById(id);
 
@@ -78,31 +87,12 @@ const session = {
 };
 
 /* ============================================================
-   マスター（転送.xlsx を端末内で読み込む。サーバーには送らない）
+   マスター
+   通常はログイン時に master.enc（暗号化済み）を取得・復号して使う。
+   端末で転送.xlsxを直接読み込むこともできる（ファイルは外部に送信しない）。
    保存形式: { items: {JAN: [商品名, 在売価]}, file, loadedAt }
    ============================================================ */
 let master = null;
-
-/** 転送.xlsx の全シートから D列=JAN, E列=品番名, F列=在売価 を読み取る（重複JANは先勝ち） */
-function parseMaster(arrayBuffer) {
-  const wb = XLSX.read(arrayBuffer, { type: 'array' });
-  const items = {};
-  for (const sheetName of wb.SheetNames) {
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: true, defval: null });
-    for (const r of rows) {
-      if (!r || r[3] == null) continue;
-      const jan = (typeof r[3] === 'number' ? String(Math.round(r[3])) : String(r[3])).trim();
-      if (!/^\d{8,14}$/.test(jan)) continue; // 見出し行など
-      if (items[jan]) continue;
-      const name = r[4] == null ? '' : String(r[4]).trim();
-      let price = null;
-      if (typeof r[5] === 'number') price = Math.round(r[5]);
-      else if (r[5] != null && /^\d+$/.test(String(r[5]).trim())) price = Number(String(r[5]).trim());
-      items[jan] = [name, price];
-    }
-  }
-  return items;
-}
 
 function lookup(jan) {
   const v = master && master.items[jan];
@@ -121,7 +111,7 @@ function updateMasterStatus() {
     return;
   }
   const d = new Date(master.loadedAt);
-  btn.textContent = `マスター ${masterCount().toLocaleString('ja-JP')}件（${d.getMonth() + 1}/${d.getDate()} 読込）`;
+  btn.textContent = `マスター ${masterCount().toLocaleString('ja-JP')}件（${d.getMonth() + 1}/${d.getDate()} 更新）`;
   btn.classList.remove('missing');
 }
 
@@ -135,7 +125,7 @@ async function onMasterFileSelected(e) {
   if (!file) return;
   showToast('マスターを読み込み中…', 10000);
   try {
-    const items = parseMaster(await file.arrayBuffer());
+    const items = parseMaster(XLSX, await file.arrayBuffer());
     const count = Object.keys(items).length;
     if (count === 0) {
       showDialog('JANコードが見つかりませんでした。\n転送.xlsx（D列にJAN、E列に品番名、F列に在売価）を選んでください。', [{ label: 'OK' }]);
@@ -332,7 +322,8 @@ function colorFor(jan) {
 
 function processBarcodes(barcodes, frameWidth, frameHeight) {
   drawOverlay(barcodes, frameWidth, frameHeight);
-  if (barcodes.length === 0 || !$('dialog').hidden) return;
+  // 結果を表示中（OK待ち）・ダイアログ表示中は次のスキャンを受け付けない
+  if (barcodes.length === 0 || holdingResult || !$('dialog').hidden) return;
 
   if (mode === 'bulk') {
     barcodes.forEach((b) => b.rawValue && handleDetectedJan(b.rawValue));
@@ -432,13 +423,19 @@ function updateCount() {
   $('countNum').textContent = String(session.records.length);
 }
 
-let resultTimer = null;
-let warnTimer = null;
 let toastTimer = null;
+let holdingResult = false;
+let holdingJan = null;
 
-/** マスターにあれば「◯」と商品名・在売価（税込）、なければ「該当なし」を表示する */
+/**
+ * マスターにあれば「◯」と商品名・在売価（税込）、なければ「該当なし」を表示する。
+ * 転記できるよう、OK を押すまで表示し続け、その間は次のスキャンを止める。
+ */
 function showResult(jan, item) {
-  clearTimeout(resultTimer);
+  holdingResult = true;
+  holdingJan = jan;
+  $('warnText').classList.remove('show');
+  $('reticle').classList.add('holding');
   const mark = $('resultMark');
   if (item) {
     mark.textContent = '◯';
@@ -457,17 +454,26 @@ function showResult(jan, item) {
     $('resultPriceRow').hidden = true;
   }
   $('resultPanel').classList.add('show');
-  resultTimer = setTimeout(() => $('resultPanel').classList.remove('show'), RESULT_SHOW_MS);
 }
 
 function showWarn(text) {
-  clearTimeout(warnTimer);
   $('warnText').textContent = text;
   $('warnText').classList.add('show');
-  warnTimer = setTimeout(() => $('warnText').classList.remove('show'), RESULT_SHOW_MS);
 }
 
-function showToast(text, ms = 2200) {
+/** OK：表示を消して次のスキャンへ */
+function dismissResult() {
+  if (!holdingResult) return;
+  holdingResult = false;
+  // カメラに同じバーコードが写ったままでも、すぐに二重登録と出ないよう少し待つ
+  if (holdingJan) lastProcessedTs.set(holdingJan, Date.now());
+  holdingJan = null;
+  $('resultPanel').classList.remove('show');
+  $('warnText').classList.remove('show');
+  $('reticle').classList.remove('holding');
+}
+
+function showToast(text, ms = TOAST_MS) {
   clearTimeout(toastTimer);
   $('toast').textContent = text;
   $('toast').hidden = false;
@@ -619,8 +625,9 @@ function handleMasterButton() {
   }
   const d = new Date(master.loadedAt);
   const when = `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  showDialog(`マスター：${masterCount().toLocaleString('ja-JP')}件\n${master.file}\n（${when} 読込）`, [
-    { label: '📂 転送.xlsx を読み込み直す', primary: true, action: pickMasterFile },
+  showDialog(`マスター：${masterCount().toLocaleString('ja-JP')}件\n${master.file}（${when} 更新）`, [
+    { label: '🔄 最新のマスターを取得', primary: true, action: () => syncMaster(true) },
+    { label: '📂 端末の転送.xlsx を読み込む', action: pickMasterFile },
     { label: '閉じる' },
   ]);
 }
@@ -633,6 +640,110 @@ async function requestWakeLock() {
   try {
     if ('wakeLock' in navigator && !document.hidden) wakeLock = await navigator.wakeLock.request('screen');
   } catch (e) { /* 非対応 */ }
+}
+
+/* ============================================================
+   ログインとマスター取得（端末ごとに1回ログイン。以後は自動）
+   ============================================================ */
+const b64ToBytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+
+async function deriveKeyBase64(password) {
+  const enc = new TextEncoder();
+  const base = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', hash: 'SHA-256', salt: enc.encode(KDF_SALT), iterations: KDF_ITERATIONS },
+    base,
+    256
+  );
+  return btoa(String.fromCharCode(...new Uint8Array(bits)));
+}
+
+class WrongPasswordError extends Error {}
+
+/** master.enc を取得して復号する。カギが違えば WrongPasswordError */
+async function fetchMaster(keyB64) {
+  const res = await fetch(MASTER_URL, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`マスターを取得できませんでした（${res.status}）`);
+  const box = await res.json();
+  const key = await crypto.subtle.importKey('raw', b64ToBytes(keyB64), 'AES-GCM', false, ['decrypt']);
+  let plain;
+  try {
+    plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64ToBytes(box.iv) }, key, b64ToBytes(box.data));
+  } catch (e) {
+    throw new WrongPasswordError('パスワードが違います。');
+  }
+  return JSON.parse(new TextDecoder().decode(plain));
+}
+
+/** 取得したマスターが新しい版なら取り込む */
+function applyServerMaster(payload) {
+  let current = null;
+  try { current = localStorage.getItem(KEY_MASTER_VER); } catch (e) { /* 無視 */ }
+  if (master && current === payload.version) return false;
+  master = { items: payload.items, file: payload.file, loadedAt: payload.updatedAt };
+  saveJson(KEY_MASTER, master);
+  try { localStorage.setItem(KEY_MASTER_VER, payload.version); } catch (e) { /* 無視 */ }
+  updateMasterStatus();
+  refreshCover();
+  return true;
+}
+
+function getSavedKey() {
+  try { return localStorage.getItem(KEY_AUTH); } catch (e) { return null; }
+}
+
+/** 起動時・手動で最新のマスターを取りに行く（電波がなければ手元のマスターのまま） */
+async function syncMaster(manual) {
+  const keyB64 = getSavedKey();
+  if (!keyB64) return;
+  try {
+    const updated = applyServerMaster(await fetchMaster(keyB64));
+    if (updated) showToast(`マスターを更新しました（${masterCount().toLocaleString('ja-JP')}件）`);
+    else if (manual) showToast('マスターは最新です。');
+  } catch (e) {
+    if (e instanceof WrongPasswordError) {
+      // パスワードが変更された → 入れ直してもらう
+      try { localStorage.removeItem(KEY_AUTH); } catch (err) { /* 無視 */ }
+      showLogin('パスワードが変更されました。もう一度ログインしてください。');
+    } else if (manual) {
+      showToast('マスターを取得できませんでした。電波の良い所でお試しください。');
+    }
+  }
+}
+
+let onLoginSuccess = null;
+
+function showLogin(message) {
+  $('loginError').textContent = message || '';
+  $('login').hidden = false;
+  $('loginPassword').focus();
+}
+
+async function onLoginSubmit(e) {
+  e.preventDefault();
+  $('btnLogin').disabled = true;
+  $('btnLogin').textContent = '確認中…';
+  $('loginError').textContent = '';
+  try {
+    const keyB64 = await deriveKeyBase64($('loginPassword').value);
+    const payload = await fetchMaster(keyB64);
+    try { localStorage.setItem(KEY_AUTH, keyB64); } catch (err) { /* 保存できなくても今回は使える */ }
+    applyServerMaster(payload);
+    $('login').hidden = true;
+    $('loginPassword').value = '';
+    if (onLoginSuccess) {
+      const f = onLoginSuccess;
+      onLoginSuccess = null;
+      f();
+    }
+  } catch (err) {
+    $('loginError').textContent = err instanceof WrongPasswordError
+      ? err.message
+      : 'ログインできませんでした。電波の良い所で再度お試しください。';
+  } finally {
+    $('btnLogin').disabled = false;
+    $('btnLogin').textContent = 'ログイン';
+  }
 }
 
 /* ============================================================
@@ -655,6 +766,8 @@ function init() {
   $('btnMaster').addEventListener('click', handleMasterButton);
   $('btnExport').addEventListener('click', handleExport);
   $('btnReset').addEventListener('click', handleReset);
+  $('btnOk').addEventListener('click', dismissResult);
+  $('loginForm').addEventListener('submit', onLoginSubmit);
 
   $('btnMode').addEventListener('click', () => {
     mode = mode === 'individual' ? 'bulk' : 'individual';
@@ -699,15 +812,25 @@ function init() {
     }
   });
 
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+
+  if (getSavedKey()) {
+    afterLogin();
+    syncMaster(false);
+  } else {
+    onLoginSuccess = afterLogin;
+    showLogin();
+  }
+}
+
+function afterLogin() {
   if (session.records.length > 0) {
     showDialog(`前回の作業データが${session.records.length}件残っています。\n引き継ぎますか？`, [
       { label: '引き継ぐ', primary: true },
       { label: 'リセットする', action: () => { session.clear(); updateCount(); } },
     ]);
   }
-
-  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 
 init();

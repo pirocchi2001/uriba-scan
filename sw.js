@@ -6,6 +6,7 @@ const ASSETS = [
   'index.html',
   'style.css',
   'app.js',
+  'master-parse.js',
   'manifest.webmanifest',
   'icons/icon.svg',
   'icons/icon-180.png',
@@ -14,6 +15,7 @@ const ASSETS = [
   'vendor/xlsx.core.min.js',
   'vendor/barcode-detector-ponyfill.js',
   'vendor/zxing_reader.wasm',
+  'master.enc',
 ];
 
 self.addEventListener('install', (e) => {

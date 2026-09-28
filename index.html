@@ -15,6 +15,17 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- ログイン -->
+  <div class="login" id="login" hidden>
+    <form class="login-box" id="loginForm" autocomplete="on">
+      <div class="login-title">売場スキャン</div>
+      <input type="text" name="username" value="uriba-scan" autocomplete="username" hidden>
+      <input class="login-input" id="loginPassword" type="password" placeholder="パスワード" autocomplete="current-password" required>
+      <div class="login-error" id="loginError"></div>
+      <button class="btn primary" type="submit" id="btnLogin">ログイン</button>
+    </form>
+  </div>
+
   <!-- ヘッダー -->
   <header class="header">
     <div class="brand">TOYLOPARK</div>
@@ -62,6 +73,7 @@
           <span class="result-price" id="resultPrice"></span><span class="tax">（税込）</span>
         </div>
       </div>
+      <button class="ok-btn" id="btnOk">OK</button>
     </div>
     <div class="warn" id="warnText"></div>
 
@@ -88,6 +100,7 @@
 
   <script src="vendor/xlsx.core.min.js"></script>
   <script src="vendor/barcode-detector-ponyfill.js"></script>
+  <script src="master-parse.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
