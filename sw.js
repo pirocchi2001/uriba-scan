@@ -1,6 +1,6 @@
 // オフライン対応：アプリ本体を端末にキャッシュする。
 // 更新を配信するときは CACHE の番号を上げる。
-const CACHE = 'uriba-scan-v2';
+const CACHE = 'uriba-scan-v3';
 const ASSETS = [
   './',
   'index.html',
@@ -32,7 +32,10 @@ self.addEventListener('activate', (e) => {
 
 // ネットワーク優先（最新版を取りに行き、電波がなければキャッシュを使う）
 self.addEventListener('fetch', (e) => {
-  if (e.request.method !== 'GET' || new URL(e.request.url).origin !== location.origin) return;
+  const url = new URL(e.request.url);
+  if (e.request.method !== 'GET' || url.origin !== location.origin) return;
+  // 動画は分割取得(Range)されるので扱わない（キャッシュから返すとiPhoneで再生できなくなる）
+  if (url.pathname.endsWith('.mp4')) return;
   e.respondWith(
     fetch(e.request)
       .then((res) => {

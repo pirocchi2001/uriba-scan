@@ -752,6 +752,39 @@ async function onLoginSubmit(e) {
 }
 
 /* ============================================================
+   オープニング（Android版と同じ動画。終わるかタップで次へ）
+   ============================================================ */
+function playOpening(done) {
+  const box = $('opening');
+  const v = $('openingVideo');
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    clearTimeout(guard);
+    v.pause();
+    box.classList.add('fade');
+    setTimeout(() => {
+      box.hidden = true;
+      v.removeAttribute('src'); // メモリを解放
+      v.load();
+    }, 300);
+    done();
+  };
+  // 読み込めない・止まった場合でもアプリに進めるようにする
+  const guard = setTimeout(finish, 15000);
+  v.addEventListener('ended', finish);
+  v.addEventListener('error', finish);
+  box.addEventListener('click', finish);
+  // 音ありで再生し、ブラウザに止められたら（iPhone等）音なしで再生する
+  v.muted = false;
+  v.play().catch(() => {
+    v.muted = true;
+    return v.play();
+  }).catch(finish);
+}
+
+/* ============================================================
    起動
    ============================================================ */
 const deviceId = getOrCreateDeviceId();
@@ -820,13 +853,15 @@ function init() {
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 
-  if (getSavedKey()) {
-    afterLogin();
-    syncMaster(false);
-  } else {
-    onLoginSuccess = afterLogin;
-    showLogin();
-  }
+  if (getSavedKey()) syncMaster(false);
+  playOpening(() => {
+    if (getSavedKey()) {
+      afterLogin();
+    } else {
+      onLoginSuccess = afterLogin;
+      showLogin();
+    }
+  });
 }
 
 function afterLogin() {
