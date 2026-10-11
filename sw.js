@@ -1,6 +1,6 @@
 // オフライン対応：アプリ本体を端末にキャッシュする。
 // 更新を配信するときは CACHE の番号を上げる。
-const CACHE = 'uriba-scan-v3';
+const CACHE = 'uriba-scan-v4';
 const ASSETS = [
   './',
   'index.html',
